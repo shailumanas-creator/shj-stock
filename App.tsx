@@ -6,15 +6,16 @@ import {
   COMBOS, 
   EXTERNAL_LINKS 
 } from './constants';
-import { Combo, GroundingSource } from './types';
+import { Combo, GroundingSource, SavedAnalysis } from './types';
 import { analyzeCombo } from './geminiService';
 import { marked } from 'marked';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'conditions' | 'combos' | 'analysis' | 'users'>('combos');
+  const [activeTab, setActiveTab] = useState<'conditions' | 'combos' | 'analysis' | 'users' | 'saved'>('combos');
   const [selectedCombo, setSelectedCombo] = useState<Combo | null>(null);
   const [analysisResult, setAnalysisResult] = useState<{ text: string; sources: GroundingSource[] } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([]);
   
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -43,6 +44,11 @@ const App: React.FC = () => {
       const parsedUser = JSON.parse(session);
       setIsAuthenticated(true);
       setCurrentUser(parsedUser);
+    }
+    
+    const saved = localStorage.getItem('screener_saved_analyses');
+    if (saved) {
+      setSavedAnalyses(JSON.parse(saved));
     }
   }, []);
 
@@ -130,6 +136,29 @@ const App: React.FC = () => {
     setLoading(false);
   };
 
+  const handleSaveAnalysis = () => {
+    if (!analysisResult || !selectedCombo) return;
+
+    const newSave: SavedAnalysis = {
+      id: Date.now().toString(),
+      timestamp: new Date().toLocaleString(),
+      comboName: selectedCombo.name,
+      text: analysisResult.text,
+      sources: analysisResult.sources
+    };
+
+    const updated = [newSave, ...savedAnalyses];
+    setSavedAnalyses(updated);
+    localStorage.setItem('screener_saved_analyses', JSON.stringify(updated));
+    alert('Analysis saved successfully!');
+  };
+
+  const deleteSavedAnalysis = (id: string) => {
+    const updated = savedAnalyses.filter(a => a.id !== id);
+    setSavedAnalyses(updated);
+    localStorage.setItem('screener_saved_analyses', JSON.stringify(updated));
+  };
+
   const exportUsersToCsv = () => {
     const users = JSON.parse(localStorage.getItem('screener_users') || '[]');
     if (users.length === 0) {
@@ -154,7 +183,11 @@ const App: React.FC = () => {
 
   const getHtmlContent = (text: string) => {
     try {
-      return marked.parse(text);
+      let html = marked.parse(text) as string;
+      // Highlight rows that contain the star symbol
+      html = html.replace(/<tr>\s*<td><strong>⭐/g, '<tr class="highlight-row"><td><strong>⭐');
+      html = html.replace(/<tr>\s*<td>⭐/g, '<tr class="highlight-row"><td>⭐');
+      return html;
     } catch (e) {
       console.error("Markdown parsing error", e);
       return text;
@@ -351,6 +384,12 @@ const App: React.FC = () => {
               >
                 AI Insights
               </button>
+              <button 
+                onClick={() => setActiveTab('saved')}
+                className={`px-6 py-2 rounded-full text-xs font-black transition-all uppercase tracking-wider ${activeTab === 'saved' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/40' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}
+              >
+                Saved
+              </button>
               {isAdmin && (
                 <button 
                   onClick={() => setActiveTab('users')}
@@ -508,12 +547,20 @@ const App: React.FC = () => {
                       <h2 className="text-4xl font-black mb-2 tracking-tighter">{selectedCombo.name}</h2>
                       <p className="text-slate-400 text-sm font-bold uppercase tracking-widest">Matched Candidates & Performance Metrics</p>
                     </div>
-                    <button 
-                      onClick={() => handleAnalyze(selectedCombo)}
-                      className="px-8 py-4 bg-white text-[#0f172a] rounded-2xl text-xs font-black shadow-xl hover:bg-indigo-50 transition-all flex items-center gap-3 uppercase tracking-widest"
-                    >
-                      <i className="fas fa-sync-alt"></i> Refresh Data
-                    </button>
+                    <div className="flex flex-wrap gap-4">
+                      <button 
+                        onClick={handleSaveAnalysis}
+                        className="px-8 py-4 bg-emerald-600 text-white rounded-2xl text-xs font-black shadow-xl hover:bg-emerald-500 transition-all flex items-center gap-3 uppercase tracking-widest"
+                      >
+                        <i className="fas fa-save"></i> Save Analysis
+                      </button>
+                      <button 
+                        onClick={() => handleAnalyze(selectedCombo)}
+                        className="px-8 py-4 bg-white text-[#0f172a] rounded-2xl text-xs font-black shadow-xl hover:bg-indigo-50 transition-all flex items-center gap-3 uppercase tracking-widest"
+                      >
+                        <i className="fas fa-sync-alt"></i> Refresh Data
+                      </button>
+                    </div>
                   </div>
                 </div>
                 
@@ -564,6 +611,73 @@ const App: React.FC = () => {
                 >
                   Browse Strategies
                 </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'saved' && (
+          <div className="max-w-6xl mx-auto animate-fadeIn space-y-8">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl font-black text-slate-900 mb-4 tracking-tighter uppercase">Saved Analyses</h2>
+              <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Your historical market intelligence reports</p>
+            </div>
+
+            {savedAnalyses.length > 0 ? (
+              <div className="grid grid-cols-1 gap-8">
+                {savedAnalyses.map((save) => (
+                  <div key={save.id} className="bg-white rounded-[2.5rem] shadow-xl border border-slate-200/60 overflow-hidden">
+                    <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
+                      <div>
+                        <h3 className="text-xl font-black tracking-tight uppercase">{save.comboName}</h3>
+                        <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-1">Generated on {save.timestamp}</p>
+                      </div>
+                      <button 
+                        onClick={() => deleteSavedAnalysis(save.id)}
+                        className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center border border-rose-500/20"
+                      >
+                        <i className="fas fa-trash-alt"></i>
+                      </button>
+                    </div>
+                    <div className="p-10">
+                      <div 
+                        className="prose prose-slate max-w-none 
+                          prose-table:border prose-table:border-slate-200 prose-table:rounded-2xl prose-table:overflow-hidden
+                          prose-th:bg-slate-50 prose-th:p-4 prose-th:text-[11px] prose-th:font-black prose-th:uppercase prose-th:tracking-widest prose-th:text-slate-600 prose-th:border-b-2 prose-th:border-slate-200
+                          prose-td:p-4 prose-td:text-sm prose-td:font-bold prose-td:text-slate-700 prose-td:border-b prose-td:border-slate-100
+                          prose-tr:hover:bg-slate-50/50 transition-colors overflow-x-auto"
+                        dangerouslySetInnerHTML={{ __html: getHtmlContent(save.text) }} 
+                      />
+                      
+                      {save.sources && save.sources.length > 0 && (
+                        <div className="mt-10 pt-8 border-t border-slate-100">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Sources</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {save.sources.map((src, i) => src.web && (
+                              <a 
+                                key={i} 
+                                href={src.web.uri} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="px-4 py-2 bg-slate-50 text-[10px] font-bold text-slate-600 rounded-lg border border-slate-200 hover:bg-indigo-50 hover:text-indigo-600 transition-all"
+                              >
+                                {src.web.title}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-32 bg-white rounded-[3rem] border-4 border-dashed border-slate-100">
+                <div className="bg-slate-50 w-28 h-28 rounded-[2rem] flex items-center justify-center mx-auto mb-8">
+                  <i className="fas fa-folder-open text-slate-300 text-4xl"></i>
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 mb-2 uppercase tracking-tighter">No Saved Reports</h3>
+                <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Run an analysis and click 'Save' to see them here</p>
               </div>
             )}
           </div>
@@ -693,6 +807,21 @@ const App: React.FC = () => {
         }
         .prose div::-webkit-scrollbar-thumb:hover {
           background: #94a3b8;
+        }
+
+        .prose tr.highlight-row {
+          background-color: #fffbeb !important; /* amber-50 */
+          border-left: 4px solid #f59e0b !important; /* amber-500 */
+        }
+        .prose tr.highlight-row td {
+          color: #92400e !important; /* amber-900 */
+        }
+        .prose tr.highlight-row td a {
+          color: #b45309 !important; /* amber-700 */
+          text-decoration-color: #f59e0b !important; /* amber-500 */
+        }
+        .prose tr.highlight-row td a:hover {
+          color: #78350f !important; /* amber-800 */
         }
       `}} />
     </div>

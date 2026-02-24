@@ -23,7 +23,15 @@ export interface Combo {
 
 export interface GroundingSource {
   web?: {
-    uri: string;
-    title: string;
+    uri?: string;
+    title?: string;
   };
+}
+
+export interface SavedAnalysis {
+  id: string;
+  timestamp: string;
+  comboName: string;
+  text: string;
+  sources: GroundingSource[];
 }
